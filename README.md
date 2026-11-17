@@ -51,7 +51,7 @@ const memory = wasm.memory.buffer;
 const private_key = new Uint8Array(memory, wasm.private_key.value, 32);
 const fingerprint = new Uint8Array(memory, wasm.fingerprint.value, 32);
 const signature = new Uint8Array(memory, wasm.signature.value, 64);
-const message = new Uint8Array(memory, wasm.message.value, 1 << 20);
+const message = new Uint8Array(memory, wasm.message.value, 1 << 23);
 const digest = new Uint8Array(memory, wasm.digest.value, 64);
 
 crypto.getRandomValues(private_key);
@@ -77,10 +77,10 @@ Since `verify_signature` rejects $S \ge L$, nobody but the signer can turn a val
 
 ## 4. Limits
 
-* **Message length:** $1 \le mlen \le 2^{20}$ bytes. Empty messages are rejected.
+* **Message length:** $1 \le mlen \le 2^{23}$ bytes. Empty messages are rejected.
 * **Digest length:** $1 \le dlen \le 64$ bytes.
 * **One thing at a time:** the buffers are fixed and shared by all functions, so a module instance handles one message at a time. Use one instance per worker for parallel work.
-* **Memory:** a fixed 19 pages (1.19 MiB) of WebAssembly memory, which never grows.
+* **Memory:** a fixed 131 pages (8.19 MiB) of WebAssembly memory, which never grows.
 * **Speed:** in Node.js 22 on a cloud VM, signing a 1000 byte message took about 1.5 ms and verifying it about 2.5 ms.
 * **Public keys:** `verify_signature` rejects a `fingerprint` that does not decode to a point, and the 8 small-order points in any encoding. With such a key, one signature would be valid for many messages, and `create_fingerprint` never produces one.
 * **Side channels:** the Ed25519 code is the SUPERCOP reference implementation, which passes TIMECOP's constant-time checks as native code (see `ed25519_ref/goal-*`). A WebAssembly engine gives no such guarantee. Verification is variable time, but it only handles public data.

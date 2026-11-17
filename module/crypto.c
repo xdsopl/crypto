@@ -8,7 +8,7 @@ Copyright 2024 Ahmet Inan <xdsopl@gmail.com>
 #include "blake2.h"
 #include "ge25519.h"
 
-#define MLEN_MAX (1 << 20)
+#define MLEN_MAX (1 << 23)
 
 __attribute__((visibility("default")))
 unsigned char digest[64];
