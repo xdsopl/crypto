@@ -10,8 +10,8 @@ CFLAGS += -std=c89 -W -Wall -pedantic -Wno-long-long -O2 -Iquirks
 BLAKE2 = -Iblake2_ref
 CRYPTO = -Ied25519_ref -DCRYPTO_NAMESPACE\(name\)=crypto_\#\#name
 
-docs/crypto.wasm.gz: temp/crypto.wasm
-	gzip -n -c $< > $@
+docs/crypto.wasm: temp/crypto.wasm
+	cp $< $@
 
 .PHONY: webserver
 webserver:
