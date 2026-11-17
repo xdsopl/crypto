@@ -3,7 +3,7 @@
 
 A small WebAssembly module for digital signatures and hashing in the browser: Ed25519 with BLAKE2b in place of SHA-512, plus plain BLAKE2b. It needs no libc and no JavaScript glue code, it exports a few fixed buffers and five functions.
 
-**Try it:** https://xdsopl.github.io/crypto/ creates a key, signs and verifies a random message and prints the timings.
+**Try it:** https://xdsopl.github.io/crypto/ runs the test suite in your browser: known answers, bit flips, the security checks, random keys and messages, and the timings.
 
 ---
 
@@ -91,7 +91,7 @@ Since `verify_signature` rejects $S \ge L$, nobody but the signer can turn a val
 ## 5. Building
 
 * **`make`:** builds `temp/crypto.wasm` with clang and wasm-ld for `wasm32` and copies it to `docs/crypto.wasm`, which GitHub Pages serves. Commit the rebuilt module together with every change to the code.
-* **`make webserver`:** serves `docs/` on http://127.0.0.1:8080/ with Python's `http.server`. `WebAssembly.instantiateStreaming` needs the module served as `application/wasm`, which recent Python versions do.
+* **`make webserver`:** serves `docs/` on http://127.0.0.1:8080/ with Python's `http.server`. `WebAssembly.instantiateStreaming` needs the module served as `application/wasm`, which recent Python versions do. Open it to run the tests against your local build.
 * **`make clean`:** removes the object files in `temp/`.
 
 ### Layout
