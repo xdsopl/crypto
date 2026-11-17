@@ -15,7 +15,7 @@ docs/crypto.wasm: temp/crypto.wasm
 
 .PHONY: webserver
 webserver:
-	go run tools/webserver.go
+	python3 -m http.server 8080 --bind 127.0.0.1 --directory docs
 
 temp/crypto.wasm: temp/string.o temp/blake2b-ref.o temp/fe25519.o temp/sc25519.o temp/ge25519.o temp/crypto.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
