@@ -91,6 +91,24 @@ int create_fingerprint(void)
 	return 0;
 }
 
+/* check if little-endian 32 byte scalar is less than group order L */
+static int scalar_is_canonical(const unsigned char s[32])
+{
+	static const unsigned char L[32] = {
+		0xED, 0xD3, 0xF5, 0x5C, 0x1A, 0x63, 0x12, 0x58,
+		0xD6, 0x9C, 0xF7, 0xA2, 0xDE, 0xF9, 0xDE, 0x14,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10 };
+	int i;
+	for (i = 31; i >= 0; --i) {
+		if (s[i] < L[i])
+			return 1;
+		if (s[i] > L[i])
+			return 0;
+	}
+	return 0;
+}
+
 __attribute__((visibility("default")))
 int verify_signature(int mlen)
 {
@@ -100,7 +118,7 @@ int verify_signature(int mlen)
 	blake2b_state state;
 	if (mlen < 1 || mlen > MLEN_MAX)
 		return 1;
-	if (signature[63] & 224)
+	if (!scalar_is_canonical(signature+32))
 		return 1;
 	if (ge25519_unpackneg_vartime(&get1, fingerprint))
 		return 1;
