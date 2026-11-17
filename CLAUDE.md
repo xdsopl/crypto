@@ -1,5 +1,6 @@
 Work in small, reviewable steps:
 - One logical change per commit. Stop after each commit and wait for me.
+- After changing module/, quirks/ or the reference code, run `make` and commit the rebuilt docs/crypto.wasm in the same commit.
 - Do not rename anything unless I asked for that specific rename.
 - Do not add, remove or reword comments unless I ask.
 - Do not reformat or touch lines unrelated to the change.
