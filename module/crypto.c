@@ -52,6 +52,9 @@ int create_signature(int mlen)
 	az[0] &= 248;
 	az[31] &= 127;
 	az[31] |= 64;
+	sc25519_from32bytes(&scsk, az);
+	ge25519_scalarmult_base(&ger, &scsk);
+	ge25519_pack(fingerprint, &ger);
 	blake2b_init(&state, 64);
 	blake2b_update(&state, az+32, 32);
 	blake2b_update(&state, message, mlen);
@@ -65,7 +68,6 @@ int create_signature(int mlen)
 	blake2b_update(&state, message, mlen);
 	blake2b_final(&state, hram, 64);
 	sc25519_from64bytes(&scs, hram);
-	sc25519_from32bytes(&scsk, az);
 	sc25519_mul(&scs, &scs, &scsk);
 	sc25519_add(&scs, &scs, &sck);
 	sc25519_to32bytes(signature+32, &scs);

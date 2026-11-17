@@ -31,7 +31,7 @@ Signing is deterministic: the same key and message always give the same signatur
 Each buffer is exported as a `WebAssembly.Global` holding its address in `memory`. They are views into the module's memory, so copy the contents out (for example with `slice()`) before the next call overwrites them.
 
 * **`private_key`** (32 bytes): the private key, filled by the caller with 32 random bytes. The module has no random number generator.
-* **`fingerprint`** (32 bytes): the public key. Written by `create_fingerprint`, read by `create_signature` and `verify_signature`.
+* **`fingerprint`** (32 bytes): the public key. Written by `create_fingerprint` and `create_signature`, read by `verify_signature`.
 * **`signature`** (64 bytes): written by `create_signature`, read by `verify_signature`.
 * **`message`** ($2^{20}$ bytes): the message to sign, verify or hash. Only the first `mlen` bytes are used.
 * **`digest`** (64 bytes): the first `dlen` bytes are written by `digest_message`.
@@ -40,12 +40,9 @@ Each buffer is exported as a `WebAssembly.Global` holding its address in `memory
 All functions return `0` on success and `1` on bad arguments.
 
 * **`create_fingerprint()`:** derives `fingerprint` from `private_key`.
-* **`create_signature(mlen)`:** signs the first `mlen` bytes of `message` with `private_key` and `fingerprint` and writes `signature`.
+* **`create_signature(mlen)`:** signs the first `mlen` bytes of `message` with `private_key` and writes `signature`. It also writes the matching public key to `fingerprint`, replacing whatever was there.
 * **`verify_signature(mlen)`:** checks `signature` over the first `mlen` bytes of `message` against `fingerprint`. Returns `0` only for a valid signature, and `1` for an invalid one too.
 * **`digest_message(mlen, dlen)`:** writes the BLAKE2b hash with an output length of `dlen` bytes of the first `mlen` bytes of `message` to `digest`. BLAKE2b mixes the output length into the hash, so a 32 byte digest is **not** the first half of the 64 byte digest. Pick one length and stick with it.
-
-### Keep the fingerprint matching the private key
-`create_signature` takes the public key from `fingerprint` and does not derive it again. If the same message is ever signed with the same `private_key` but two different values in `fingerprint`, both signatures get the same $R$ and anyone who sees them can solve for the secret scalar $a$ and sign anything in your name. So always call `create_fingerprint` right after writing `private_key`, and call it again before signing whenever `fingerprint` was changed in between, for example to verify somebody else's signature.
 
 ### Example
 ```js
@@ -84,7 +81,7 @@ Since `verify_signature` rejects $S \ge L$, nobody but the signer can turn a val
 * **Digest length:** $1 \le dlen \le 64$ bytes.
 * **One thing at a time:** the buffers are fixed and shared by all functions, so a module instance handles one message at a time. Use one instance per worker for parallel work.
 * **Memory:** a fixed 19 pages (1.19 MiB) of WebAssembly memory, which never grows.
-* **Speed:** in Node.js 22 on a cloud VM, signing a 1000 byte message took about 0.7 ms and verifying it about 3 ms.
+* **Speed:** in Node.js 22 on a cloud VM, signing a 1000 byte message took about 1.5 ms and verifying it about 2.5 ms.
 * **Public keys:** `verify_signature` only checks that `fingerprint` decodes to a point. It does not reject small-order points, so only trust a key you got from `create_fingerprint` or from someone you trust.
 * **Side channels:** the Ed25519 code is the SUPERCOP reference implementation, which passes TIMECOP's constant-time checks as native code (see `ed25519_ref/goal-*`). A WebAssembly engine gives no such guarantee. Verification is variable time, but it only handles public data.
 * **Older signatures:** `create_signature` has always written $S < L$, so signatures from earlier versions still verify.
