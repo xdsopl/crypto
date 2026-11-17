@@ -82,7 +82,7 @@ Since `verify_signature` rejects $S \ge L$, nobody but the signer can turn a val
 * **One thing at a time:** the buffers are fixed and shared by all functions, so a module instance handles one message at a time. Use one instance per worker for parallel work.
 * **Memory:** a fixed 19 pages (1.19 MiB) of WebAssembly memory, which never grows.
 * **Speed:** in Node.js 22 on a cloud VM, signing a 1000 byte message took about 1.5 ms and verifying it about 2.5 ms.
-* **Public keys:** `verify_signature` only checks that `fingerprint` decodes to a point. It does not reject small-order points, so only trust a key you got from `create_fingerprint` or from someone you trust.
+* **Public keys:** `verify_signature` rejects a `fingerprint` that does not decode to a point, and the 8 small-order points in any encoding. With such a key, one signature would be valid for many messages, and `create_fingerprint` never produces one.
 * **Side channels:** the Ed25519 code is the SUPERCOP reference implementation, which passes TIMECOP's constant-time checks as native code (see `ed25519_ref/goal-*`). A WebAssembly engine gives no such guarantee. Verification is variable time, but it only handles public data.
 * **Older signatures:** `create_signature` has always written $S < L$, so signatures from earlier versions still verify.
 
