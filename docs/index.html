@@ -3,68 +3,512 @@
 <head>
 <meta charset="utf-8">
 <title>Crypto Module</title>
+<style>
+body { color: white; background-color: black; }
+#output { font-family: monospace; white-space: pre-wrap; word-break: break-all; }
+#output h3 { font-family: sans-serif; margin: 1.5em 0 0.5em 0; }
+.passed { color: lime; }
+.failed { color: red; }
+</style>
 </head>
-<body style="color: white; background-color: black;">
+<body>
 <script>
-function print_str(str) {
-	document.getElementById("output").innerHTML += str + "<br />";
+const MLEN_MAX = 1 << 20;
+const ORDER = (1n << 252n) + 27742317777372353535851937790883648493n;
+let wasm, private_key, fingerprint, signature, message, digest;
+let passed = 0, failed = 0;
+
+const known_answers = [
+	{ key: "0000000000000000000000000000000000000000000000000000000000000000", msg: "616263",
+		pub: "19d3d919475deed4696b5d13018151d1af88b2bd3bcff048b45031c1f36d1858",
+		sig: "3a74cf6919898b514adc439b90d4fcc5f1627aa1e7c929efa6a982da932dcce9625fddc18f846ba06c02b4e0bf9f6108bb089c33b129db2bffff7c3ea3295001" },
+	{ key: "0000000000000000000000000000000000000000000000000000000000000000", msg: "48656c6c6f20576f726c6421",
+		pub: "19d3d919475deed4696b5d13018151d1af88b2bd3bcff048b45031c1f36d1858",
+		sig: "c628c72ade519a5fa3e6fbfdc07c55b2c6e1d7c0f73280fa1e430bb134f48a7a3f24c6f142b47130390813fbcc229ddcfa06041a79395a220e84266071382604" },
+	{ key: "0000000000000000000000000000000000000000000000000000000000000000", msg: "range1000",
+		pub: "19d3d919475deed4696b5d13018151d1af88b2bd3bcff048b45031c1f36d1858",
+		sig: "d172e2e7b88784313c0e7d0eb579da05951290ce7d0de2c7ae76086ec725f42c1641b7341fec6a37164a3328e29c762f7580fdc0eb3a061a3a97fc51df058209" },
+	{ key: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", msg: "616263",
+		pub: "2bc0c96667f2bba066f4b50d860bdd51c4a413b20e3d9ef28c3515a8dc4d1dfc",
+		sig: "dfa0ebfb3914e5ee4a297f7d001d1176111309cb6132b2a0399aa5114e29996f9cfc36b5fa5b5d53c754f25e910132839ee043b353d2b641d565ed0e487bf106" },
+	{ key: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", msg: "48656c6c6f20576f726c6421",
+		pub: "2bc0c96667f2bba066f4b50d860bdd51c4a413b20e3d9ef28c3515a8dc4d1dfc",
+		sig: "14f23da3be76500231a24b69d9b9e7cb9bc4ea661b7d303cd2a2764287bab0f73c6c08ec1c8a4f70dc782d92f0d15f2ef0ef6d93733b843739072b8366cb5707" },
+	{ key: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", msg: "range1000",
+		pub: "2bc0c96667f2bba066f4b50d860bdd51c4a413b20e3d9ef28c3515a8dc4d1dfc",
+		sig: "3c3e8ab99b56ea0ee52c74ab28a807d0092bfe86ab39f0628dc32829f83c989bee3f969686ba8c2151a2b5d232952ce7da84ca21d5ec059ac98768b1e39c4406" },
+	{ key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", msg: "616263",
+		pub: "f65333fa6303b6a23defd7de2af8aa461cb047ccbf12d4edd29ef3b1eba6706b",
+		sig: "f22299476253907d3c66224eb8a939676533e5c59d41ffdca043b4ed82c2e317c51e0237699f8c0b2d03078d0776220e34e33bca471afc467c0414d769856c0f" },
+	{ key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", msg: "48656c6c6f20576f726c6421",
+		pub: "f65333fa6303b6a23defd7de2af8aa461cb047ccbf12d4edd29ef3b1eba6706b",
+		sig: "d9c340931fe94f0a2e2842b34ee1ad4ec5fdffa416dadcc87cdddc4b4d53f8744af19c9f0e2b037d9642d3d24f6c551a1641986d311182d254ecf870c202900f" },
+	{ key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", msg: "range1000",
+		pub: "f65333fa6303b6a23defd7de2af8aa461cb047ccbf12d4edd29ef3b1eba6706b",
+		sig: "73fa92ec3dc818cae84f757a378c4c806ec911acc1cc1bdfaa01df899f1115f12417e102f426ed4b5eda04b02cb20674e02d76013d5f9d7ecf97337af7f08b01" },
+	{ key: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", msg: "616263",
+		pub: "78e65bf30f893d32fc57ef051c341bdede242544fc2a2112f0fa2c7afdebc02f",
+		sig: "51353216c72a99e0144fbad4e8ee193693a3649be21393ffd07776b26a3a60593b005013cde0aacce5fcb895e13af55675bf481e5de27a45bf6f4051d6bb5405" },
+	{ key: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", msg: "48656c6c6f20576f726c6421",
+		pub: "78e65bf30f893d32fc57ef051c341bdede242544fc2a2112f0fa2c7afdebc02f",
+		sig: "7b7e8b5e5cae1e1943adf313fc3f654e054e1abfbf44aa78c454bcb4dde3ccf0b59f4aa0e1ecb88980c881d6a5140efd513c2ad3208f25f80bf40b37673efd03" },
+	{ key: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", msg: "range1000",
+		pub: "78e65bf30f893d32fc57ef051c341bdede242544fc2a2112f0fa2c7afdebc02f",
+		sig: "267de83cb371c4dc0bff47276eb0f3bd77f1c8e4b60923981d4f1af05501fc831f1221a83d7e8b62d4a482f6b063d140dbfa4419d0bc7571289ab3165586a903" },
+];
+
+const small_order_keys = [
+	"0000000000000000000000000000000000000000000000000000000000000000",
+	"0000000000000000000000000000000000000000000000000000000000000080",
+	"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+	"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+	"0100000000000000000000000000000000000000000000000000000000000000",
+	"0100000000000000000000000000000000000000000000000000000000000080",
+	"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+	"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+	"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+	"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+];
+
+function print_str(str, cls) {
+	const div = document.createElement("div");
+	div.textContent = str;
+	if (cls)
+		div.className = cls;
+	document.getElementById("output").appendChild(div);
 }
-function print_hex(name, buffer) {
-	let str = name + ": ";
+function print_head(str) {
+	const h3 = document.createElement("h3");
+	h3.textContent = str;
+	document.getElementById("output").appendChild(h3);
+}
+function to_hex(buffer) {
+	let str = "";
 	for (let i = 0; i < buffer.length; ++i)
 		str += buffer[i].toString(16).padStart(2, '0').toUpperCase();
-	print_str(str);
+	return str;
 }
-function print_ms(name, start, end) {
-	print_str(name + ": " + (end - start).toFixed(2) + " ms");
+function from_hex(str) {
+	const buffer = new Uint8Array(str.length / 2);
+	for (let i = 0; i < buffer.length; ++i)
+		buffer[i] = parseInt(str.substr(2 * i, 2), 16);
+	return buffer;
 }
+function print_hex(name, buffer) {
+	print_str("  " + name + ": " + to_hex(buffer));
+}
+function from_text(str) {
+	return new TextEncoder().encode(str);
+}
+function random_int(n) {
+	return Math.floor(Math.random() * n);
+}
+function random_bytes(len) {
+	const buffer = new Uint8Array(len);
+	for (let i = 0; i < len; i += 65536)
+		crypto.getRandomValues(buffer.subarray(i, i + 65536));
+	return buffer;
+}
+function counting_bytes(len) {
+	const buffer = new Uint8Array(len);
+	for (let i = 0; i < len; ++i)
+		buffer[i] = i & 255;
+	return buffer;
+}
+function equal(a, b) {
+	if (!a || !b || a.length != b.length)
+		return false;
+	for (let i = 0; i < a.length; ++i)
+		if (a[i] != b[i])
+			return false;
+	return true;
+}
+function flip_bit(buffer, bit) {
+	const copy = buffer.slice();
+	copy[bit >> 3] ^= 1 << (bit & 7);
+	return copy;
+}
+function to_int(buffer) {
+	let n = 0n;
+	for (let i = buffer.length - 1; i >= 0; --i)
+		n = n << 8n | BigInt(buffer[i]);
+	return n;
+}
+function from_int(n, len) {
+	const buffer = new Uint8Array(len);
+	for (let i = 0; i < len; ++i, n >>= 8n)
+		buffer[i] = Number(n & 255n);
+	return buffer;
+}
+function with_s(sig, s) {
+	const copy = sig.slice();
+	copy.set(from_int(s, 32), 32);
+	return copy;
+}
+function ms(start, end) {
+	return (end - start).toFixed(2) + " ms";
+}
+function ms_per_run(start, end, runs) {
+	return ((end - start) / runs).toPrecision(3) + " ms";
+}
+function mb_per_s(bytes, start, end) {
+	return (bytes / 1e3 / (end - start)).toPrecision(3) + " MB/s";
+}
+function pause() {
+	return new Promise(resolve => setTimeout(resolve, 0));
+}
+async function test(what, func) {
+	print_str("Testing " + what);
+	await pause();
+	const start = performance.now();
+	let result;
+	try {
+		result = func();
+	} catch (error) {
+		print_str("  " + error);
+		result = false;
+	}
+	const end = performance.now();
+	if (result) {
+		++passed;
+		print_str("  passed in " + ms(start, end), "passed");
+	} else {
+		++failed;
+		print_str("  FAILED in " + ms(start, end), "failed");
+	}
+}
+
+function make_key(key) {
+	private_key.set(key);
+	if (wasm.create_fingerprint())
+		return null;
+	return fingerprint.slice();
+}
+function sign(key, msg) {
+	private_key.set(key);
+	message.set(msg);
+	if (wasm.create_signature(msg.length))
+		return null;
+	return signature.slice();
+}
+function verify(pub, sig, msg) {
+	fingerprint.set(pub);
+	signature.set(sig);
+	message.set(msg);
+	return wasm.verify_signature(msg.length) == 0;
+}
+function hash(msg, dlen) {
+	message.set(msg);
+	if (wasm.digest_message(msg.length, dlen))
+		return null;
+	return digest.slice(0, dlen);
+}
+
+async function hello_world_tests() {
+	print_head("Hello World");
+	await test("create_fingerprint, create_signature and verify_signature with \"Hello World!\"", () => {
+		const key = random_bytes(32);
+		const text = from_text("Hello World!");
+		const pub = make_key(key);
+		const sig = sign(key, text);
+		const dig = hash(text, 64);
+		print_hex("private key", key);
+		print_hex("fingerprint", pub);
+		print_hex("signature", sig);
+		print_hex("digest", dig);
+		return pub && sig && dig && verify(pub, sig, text);
+	});
+}
+
+async function known_answer_tests() {
+	print_head("Known answers");
+	await test("digest_message with \"abc\" against the BLAKE2b-512 test vector of RFC 7693", () => {
+		const expected = "BA80A53F981C4D0D6A2797B69F12F6E94C212F14685AC4B74B12BB6FDBFFA2D17D87C5392AAB792DC252D5DE4533CC9518D38AA8DBF1925AB92386EDD4009923";
+		return to_hex(hash(from_text("abc"), 64)) == expected;
+	});
+	for (const answer of known_answers) {
+		const key = from_hex(answer.key);
+		const msg = answer.msg == "range1000" ? counting_bytes(1000) : from_hex(answer.msg);
+		const name = answer.msg == "range1000" ? "the bytes 0, 1, ..., 999 mod 256" : "\"" + new TextDecoder().decode(msg) + "\"";
+		await test("key " + answer.key.substr(0, 16) + "... signing " + name, () => {
+			const pub = make_key(key);
+			const sig = sign(key, msg);
+			return to_hex(pub) == answer.pub.toUpperCase() && to_hex(sig) == answer.sig.toUpperCase() && verify(pub, sig, msg);
+		});
+	}
+}
+
+async function behaviour_tests() {
+	print_head("Behaviour");
+	await test("create_signature gives the same signature for the same key and message", () => {
+		const key = random_bytes(32), msg = random_bytes(100);
+		return equal(sign(key, msg), sign(key, msg));
+	});
+	await test("create_signature gives different R for different messages", () => {
+		const key = random_bytes(32);
+		const a = sign(key, from_text("first")), b = sign(key, from_text("second"));
+		return !equal(a.subarray(0, 32), b.subarray(0, 32));
+	});
+	await test("create_signature writes the same fingerprint as create_fingerprint, whatever was in it before", () => {
+		const key = random_bytes(32);
+		const pub = make_key(key);
+		fingerprint.set(random_bytes(32));
+		sign(key, random_bytes(10));
+		return equal(fingerprint, pub);
+	});
+	await test("signing with somebody else's fingerprint in the buffer gives the same signature", () => {
+		const key = random_bytes(32), msg = random_bytes(50);
+		make_key(key);
+		const good = sign(key, msg);
+		fingerprint.set(make_key(random_bytes(32)));
+		private_key.set(key);
+		message.set(msg);
+		wasm.create_signature(msg.length);
+		return equal(signature, good);
+	});
+	await test("verify_signature leaves fingerprint, signature and message untouched", () => {
+		const key = random_bytes(32), msg = random_bytes(200);
+		const pub = make_key(key), sig = sign(key, msg);
+		verify(pub, sig, msg);
+		return equal(fingerprint, pub) && equal(signature, sig) && equal(message.subarray(0, msg.length), msg);
+	});
+	await test("digest_message with dlen = 1 to 63 is not a prefix of dlen = 64", () => {
+		const msg = random_bytes(100);
+		const full = hash(msg, 64);
+		for (let dlen = 1; dlen < 64; ++dlen)
+			if (equal(hash(msg, dlen), full.subarray(0, dlen)))
+				return false;
+		return true;
+	});
+	await test("digest_message gives the same digest twice and different digests for different messages", () => {
+		const msg = random_bytes(100);
+		const a = hash(msg, 32), b = hash(msg, 32), c = hash(flip_bit(msg, 0), 32);
+		return equal(a, b) && !equal(a, c);
+	});
+}
+
+async function argument_tests() {
+	print_head("Arguments");
+	await test("create_signature, verify_signature and digest_message reject mlen = -1, 0 and 2^20 + 1", () => {
+		for (const mlen of [-1, 0, MLEN_MAX + 1])
+			if (!wasm.create_signature(mlen) || !wasm.verify_signature(mlen) || !wasm.digest_message(mlen, 64))
+				return false;
+		return true;
+	});
+	await test("digest_message rejects dlen = -1, 0 and 65 and accepts 1 to 64", () => {
+		for (const dlen of [-1, 0, 65])
+			if (!wasm.digest_message(1, dlen))
+				return false;
+		for (let dlen = 1; dlen <= 64; ++dlen)
+			if (wasm.digest_message(1, dlen))
+				return false;
+		return true;
+	});
+	await test("create_fingerprint always succeeds", () => {
+		return make_key(random_bytes(32)) != null && make_key(new Uint8Array(32)) != null;
+	});
+	await test("signing, verifying and hashing a message of the largest length, mlen = 2^20", () => {
+		const key = random_bytes(32), msg = random_bytes(MLEN_MAX);
+		const pub = make_key(key), sig = sign(key, msg);
+		return sig && verify(pub, sig, msg) && hash(msg, 64) != null;
+	});
+}
+
+async function bit_flip_tests() {
+	print_head("Bit flips");
+	const key = random_bytes(32), msg = random_bytes(64);
+	const pub = make_key(key), sig = sign(key, msg);
+	await test("verify_signature on all 512 bit flips of a signature", () => {
+		for (let bit = 0; bit < 512; ++bit)
+			if (verify(pub, flip_bit(sig, bit), msg))
+				return false;
+		return verify(pub, sig, msg);
+	});
+	await test("verify_signature on all 256 bit flips of a fingerprint", () => {
+		for (let bit = 0; bit < 256; ++bit)
+			if (verify(flip_bit(pub, bit), sig, msg))
+				return false;
+		return verify(pub, sig, msg);
+	});
+	await test("verify_signature on all 512 bit flips of a 64 byte message", () => {
+		for (let bit = 0; bit < 512; ++bit)
+			if (verify(pub, sig, flip_bit(msg, bit)))
+				return false;
+		return verify(pub, sig, msg);
+	});
+	await test("verify_signature with the message one byte shorter or longer", () => {
+		const longer = new Uint8Array(65);
+		longer.set(msg);
+		return !verify(pub, sig, msg.subarray(0, 63)) && !verify(pub, sig, longer) && verify(pub, sig, msg);
+	});
+}
+
+async function security_tests() {
+	print_head("Security");
+	await test("verify_signature rejects S + k L for k = 1 to 15 on 20 signatures", () => {
+		for (let i = 0; i < 20; ++i) {
+			const key = random_bytes(32), msg = random_bytes(32);
+			const pub = make_key(key), sig = sign(key, msg);
+			const s = to_int(sig.subarray(32));
+			if (!verify(pub, sig, msg))
+				return false;
+			for (let k = 1n; k < 16n; ++k)
+				if (verify(pub, with_s(sig, s + k * ORDER), msg))
+					return false;
+		}
+		return true;
+	});
+	await test("verify_signature rejects S = L, S = L + 1 and S with any of the top three bits set", () => {
+		const key = random_bytes(32), msg = random_bytes(32);
+		const pub = make_key(key), sig = sign(key, msg);
+		const s = to_int(sig.subarray(32));
+		for (const bad of [ORDER, ORDER + 1n, s | 1n << 253n, s | 1n << 254n, s | 1n << 255n])
+			if (verify(pub, with_s(sig, bad), msg))
+				return false;
+		return verify(pub, sig, msg);
+	});
+	await test("verify_signature rejects all " + small_order_keys.length + " encodings of small-order keys with R = identity and S = 0 for 64 messages each", () => {
+		const universal = new Uint8Array(64);
+		universal[0] = 1;
+		for (const hex of small_order_keys)
+			for (let i = 0; i < 64; ++i)
+				if (verify(from_hex(hex), universal, random_bytes(20)))
+					return false;
+		return true;
+	});
+	await test("verify_signature rejects small-order keys with random signatures", () => {
+		for (const hex of small_order_keys)
+			for (let i = 0; i < 16; ++i)
+				if (verify(from_hex(hex), random_bytes(64), random_bytes(20)))
+					return false;
+		return true;
+	});
+	await test("verify_signature rejects a valid signature under 256 random fingerprints", () => {
+		const key = random_bytes(32), msg = random_bytes(32);
+		const sig = sign(key, msg);
+		for (let i = 0; i < 256; ++i)
+			if (verify(random_bytes(32), sig, msg))
+				return false;
+		return true;
+	});
+	await test("verify_signature rejects 256 random signatures", () => {
+		const key = random_bytes(32), msg = random_bytes(32);
+		const pub = make_key(key);
+		for (let i = 0; i < 256; ++i)
+			if (verify(pub, random_bytes(64), msg))
+				return false;
+		return true;
+	});
+	await test("verify_signature rejects the signature of one key under another key", () => {
+		const a = random_bytes(32), b = random_bytes(32), msg = random_bytes(32);
+		return !verify(make_key(b), sign(a, msg), msg) && !verify(make_key(a), sign(b, msg), msg);
+	});
+}
+
+async function random_tests() {
+	print_head("Random keys and messages");
+	for (const mlen of [1, 2, 63, 64, 65, 127, 128, 129, 255, 256, 1000, 4096, 65536, MLEN_MAX]) {
+		await test("a random key and message with mlen = " + mlen + ", and a wrong key and message", () => {
+			const key = random_bytes(32), msg = random_bytes(mlen);
+			const pub = make_key(key), sig = sign(key, msg);
+			const bad = msg.slice();
+			bad[random_int(mlen)] ^= 1 + random_int(255);
+			return verify(pub, sig, msg) && !verify(pub, sig, bad) && !verify(make_key(random_bytes(32)), sig, msg);
+		});
+	}
+	await test("500 random keys signing short random messages", () => {
+		for (let i = 0; i < 500; ++i) {
+			const key = random_bytes(32), msg = random_bytes(1 + random_int(100));
+			const pub = make_key(key), sig = sign(key, msg);
+			if (!verify(pub, sig, msg))
+				return false;
+		}
+		return true;
+	});
+}
+
+async function speed_tests() {
+	print_head("Speed");
+	await test("speed of create_fingerprint", () => {
+		const runs = 100;
+		private_key.set(random_bytes(32));
+		const start = performance.now();
+		for (let i = 0; i < runs; ++i)
+			wasm.create_fingerprint();
+		const end = performance.now();
+		print_str("  create_fingerprint: " + ms_per_run(start, end, runs));
+		return true;
+	});
+	for (const mlen of [100, 10000, MLEN_MAX]) {
+		await test("speed with mlen = " + mlen, () => {
+			const runs = mlen == MLEN_MAX ? 5 : 50;
+			const key = random_bytes(32), msg = random_bytes(mlen);
+			private_key.set(key);
+			message.set(msg);
+			let start = performance.now();
+			for (let i = 0; i < runs; ++i)
+				wasm.create_signature(mlen);
+			let end = performance.now();
+			print_str("  create_signature: " + ms_per_run(start, end, runs) + ", " + mb_per_s(mlen * runs, start, end));
+			start = performance.now();
+			let ok = true;
+			for (let i = 0; i < runs; ++i)
+				ok = ok && !wasm.verify_signature(mlen);
+			end = performance.now();
+			print_str("  verify_signature: " + ms_per_run(start, end, runs) + ", " + mb_per_s(mlen * runs, start, end));
+			const hash_runs = Math.ceil(1e8 / mlen);
+			start = performance.now();
+			for (let i = 0; i < hash_runs; ++i)
+				wasm.digest_message(mlen, 64);
+			end = performance.now();
+			print_str("  digest_message: " + ms_per_run(start, end, hash_runs) + ", " + mb_per_s(mlen * hash_runs, start, end));
+			return ok;
+		});
+	}
+}
+
+async function goodbye_tests() {
+	print_head("Goodbye");
+	await test("\"Hello World!\" after the large messages, leftovers in the buffers must not matter", () => {
+		const key = from_hex(known_answers[1].key), text = from_text("Hello World!");
+		message.set(random_bytes(MLEN_MAX));
+		signature.set(random_bytes(64));
+		fingerprint.set(random_bytes(32));
+		const sig = sign(key, text);
+		return to_hex(sig) == known_answers[1].sig.toUpperCase() && verify(from_hex(known_answers[1].pub), sig, text);
+	});
+}
+
+async function run_tests() {
+	const start = performance.now();
+	await hello_world_tests();
+	await known_answer_tests();
+	await behaviour_tests();
+	await argument_tests();
+	await bit_flip_tests();
+	await security_tests();
+	await random_tests();
+	await speed_tests();
+	await goodbye_tests();
+	const end = performance.now();
+	print_head("Summary");
+	print_str(passed + " tests passed, " + failed + " tests failed, " + ms(start, end) + " in total", failed ? "failed" : "passed");
+}
+
 WebAssembly.instantiateStreaming(fetch("crypto.wasm"))
 	.then(obj => {
-		const wasm = obj.instance.exports;
-		buffer = wasm.memory.buffer;
-		//console.log(wasm);
-		let private_key = new Uint8Array(buffer, wasm.private_key, 32);
-		let start = performance.now();
-		crypto.getRandomValues(private_key);
-		let end = performance.now();
-		print_ms("getRandomValues", start, end);
-		print_hex("Private Key", private_key);
-		start = performance.now();
-		wasm.create_fingerprint();
-		end = performance.now();
-		print_ms("create_fingerprint", start, end);
-		let fingerprint = new Uint8Array(buffer, wasm.fingerprint, 32);
-		print_hex("Fingerprint", fingerprint);
-		let message = new Uint8Array(buffer, wasm.message, 42);
-		for (let i = 0; i < message.length; ++i)
-			message[i] = Math.trunc(Math.random() * 256);
-		print_hex("Message", message);
-		start = performance.now();
-		wasm.create_signature(message.length);
-		end = performance.now();
-		print_ms("create_signature", start, end);
-		let signature = new Uint8Array(buffer, wasm.signature, 64);
-		print_hex("Signature", signature);
-		start = performance.now();
-		wasm.digest_message(message.length, 64);
-		end = performance.now();
-		print_ms("digest_message", start, end);
-		let digest = new Uint8Array(buffer, wasm.digest, 64);
-		print_hex("Digest", digest);
-		//signature[Math.trunc(Math.random() * signature.length)] ^= 1 << Math.trunc(Math.random() * 8);
-		//message[Math.trunc(Math.random() * message.length)] ^= 1 << Math.trunc(Math.random() * 8);
-		start = performance.now();
-		if (wasm.verify_signature(message.length))
-			print_str("Verification failed!");
-		end = performance.now();
-		print_ms("verify_signature", start, end);
-		print_hex("Signature", signature);
-		print_hex("Message", message);
-		start = performance.now();
-		wasm.digest_message(message.length, 64);
-		end = performance.now();
-		print_ms("digest_message", start, end);
-		print_hex("Digest", digest);
+		wasm = obj.instance.exports;
+		const buffer = wasm.memory.buffer;
+		private_key = new Uint8Array(buffer, wasm.private_key.value, 32);
+		fingerprint = new Uint8Array(buffer, wasm.fingerprint.value, 32);
+		signature = new Uint8Array(buffer, wasm.signature.value, 64);
+		message = new Uint8Array(buffer, wasm.message.value, MLEN_MAX);
+		digest = new Uint8Array(buffer, wasm.digest.value, 64);
+		run_tests();
 	});
 </script>
 <p>
@@ -76,6 +520,6 @@ Source code: <a href="https://github.com/xdsopl/crypto" style="color: aqua;">git
 <p>
 <b>Disclaimer:</b> this is an experiment, not a vetted library. It has not been audited, it is not compatible with standard Ed25519, and it comes without any warranty. Do not rely on it to protect anything that matters.
 </p>
-<p id="output"></p>
+<div id="output"></div>
 </body>
 </html>
