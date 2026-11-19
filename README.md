@@ -33,7 +33,7 @@ Each buffer is exported as a `WebAssembly.Global` holding its address in `memory
 * **`private_key`** (32 bytes): the private key, filled by the caller with 32 random bytes. The module has no random number generator.
 * **`fingerprint`** (32 bytes): the public key. Written by `create_fingerprint` and `create_signature`, read by `verify_signature`.
 * **`signature`** (64 bytes): written by `create_signature`, read by `verify_signature`.
-* **`message`** ($2^{20}$ bytes): the message to sign, verify or hash. Only the first `mlen` bytes are used.
+* **`message`** ($2^{23}$ bytes): the message to sign, verify or hash. Only the first `mlen` bytes are used.
 * **`digest`** (64 bytes): the first `dlen` bytes are written by `digest_message`.
 
 ### Functions
